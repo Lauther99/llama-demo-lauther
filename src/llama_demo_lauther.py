@@ -1,8 +1,8 @@
+from langchain import OpenAI
 from sqlalchemy import create_engine, MetaData
 from llama_index import LLMPredictor, ServiceContext, SQLDatabase, VectorStoreIndex
 from llama_index.indices.struct_store import SQLTableRetrieverQueryEngine
 from llama_index.objects import SQLTableNodeMapping, ObjectIndex, SQLTableSchema
-from langchain import OpenAI
 import environ
 import pyodbc
 import openai
@@ -27,27 +27,24 @@ connection_uri = URL.create(
     database=DBNAME,
     query={"driver": ODBCDRIVER},
 )
+engine = create_engine(connection_uri, schema='dbo_v2')
 
-engine = create_engine(connection_uri)
+metadata_obj = MetaData(schema="dbo_v2")
+metadata_obj.reflect(bind=engine, schema="dbo_v2")
 
-metadata_obj = MetaData()
-metadata_obj.reflect(engine)
-
-sql_database = SQLDatabase(engine)
+sql_database = SQLDatabase(engine,schema='dbo_v2', metadata=metadata_obj, include_tables=["fcs_computadores", "fcs_computador_medidor"])
 table_node_mapping = SQLTableNodeMapping(sql_database)
-table_schema_objs = []
-for table_name in metadata_obj.tables.keys():
-    table_schema_objs.append(SQLTableSchema(table_name=table_name))
-
+table_names_filter = ["dbo_v2.fcs_computadores", "dbo_v2.fcs_computador_medidor"]
+table_schema_objs = [SQLTableSchema(table_name=table_name) for table_name in metadata_obj.tables.keys() if table_name in table_names_filter]
 
 obj_index = ObjectIndex.from_objects(
-    table_schema_objs,
-    table_node_mapping,
-    VectorStoreIndex,
+    objects=table_schema_objs,
+    object_mapping=table_node_mapping,
+    index_cls=VectorStoreIndex,
 )
 
-llm_predictor = LLMPredictor(llm=OpenAI(temperature=0, model_name="text-davinci-003"))
-service_context = ServiceContext.from_defaults(llm_predictor=llm_predictor)
+llm_predictor = LLMPredictor(llm=OpenAI(temperature=0, openai_api_key=API_KEY, model="text-davinci-003"))
+service_context = ServiceContext.from_defaults(llm_predictor=llm_predictor, num_output=256)
 
 query_engine = SQLTableRetrieverQueryEngine(
     sql_database,
@@ -55,8 +52,8 @@ query_engine = SQLTableRetrieverQueryEngine(
     service_context=service_context,
 )
 
-response = query_engine.query("Using the table: dbo_v2.fcs_computadores, How many computers with firmware equal to 21 are in the table?")
+response = query_engine.query("How many computers are in the table?")
 
-print(response)
-print(response.metadata['sql_query'])
-print(response.metadata['result'])
+# print(response)
+# print(response.metadata['sql_query'])
+# print(response.metadata['result'])
